@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+coverage/
+*.log
+
+# internal planning docs (not part of the submission)
+docs/superpowers/
