@@ -1,0 +1,287 @@
+{
+  "info": {
+    "_postman_id": "b4e5f6a1-7c3e-4b6a-9f21-3e5c1d4a2b90",
+    "name": "ms-restuahmadarridho-betest",
+    "description": "Microservice manajemen user. Autentikasi memakai cookie httpOnly (access_token + refresh_token) yang disimpan dan dikirim ulang otomatis oleh cookie jar Postman. Jalankan request dari atas ke bawah, atau pakai Collection Runner. Login dulu, Logout terakhir (menghapus cookie).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api" },
+    { "key": "adminUser", "value": "admin" },
+    { "key": "adminPass", "value": "admin123" },
+    { "key": "userId", "value": "" },
+    { "key": "accountId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('loggedIn true', () => pm.expect(pm.response.json().data.loggedIn).to.eql(true));",
+                  "pm.test('cookies set', () => {",
+                  "  const jar = pm.cookies;",
+                  "  pm.expect(jar.has('access_token')).to.be.true;",
+                  "  pm.expect(jar.has('refresh_token')).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"{{adminUser}}\",\n  \"password\": \"{{adminPass}}\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "Memverifikasi kredensial dan menyetel cookie access_token + refresh_token."
+          }
+        },
+        {
+          "name": "Refresh (re-set access cookie)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('refreshed', () => pm.expect(pm.response.json().data.refreshed).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/refresh",
+            "description": "Memakai cookie refresh_token untuk menerbitkan cookie access_token baru."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status ok', () => pm.expect(pm.response.json().data.status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Create user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const data = pm.response.json().data;",
+                  "pm.collectionVariables.set('userId', data.userId);",
+                  "pm.test('has UUIDv7 userId', () => pm.expect(data.userId).to.match(/-7/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Alice Wonder\",\n  \"accountNumber\": \"A100\",\n  \"emailAddress\": \"alice@example.com\",\n  \"registrationNumber\": \"R100\",\n  \"role\": \"user\"\n}"
+            },
+            "url": "{{baseUrl}}/users"
+          }
+        },
+        {
+          "name": "List users (filter + sort + paginate)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/users?role=user&sort=fullName&order=asc&page=1&limit=10",
+            "description": "Query opsional: fullName, role, emailAddress, accountNumber, registrationNumber, userId, sort, order (asc|desc), page, limit."
+          }
+        },
+        {
+          "name": "Get user by userId",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Get user by accountNumber",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/users?accountNumber=A100",
+            "description": "Required read: key unik mengembalikan satu user (dilayani dari cache)."
+          }
+        },
+        {
+          "name": "Get user by registrationNumber",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/users?registrationNumber=R100"
+          }
+        },
+        {
+          "name": "Update user (PATCH partial)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Alice Updated\"\n}"
+            },
+            "url": "{{baseUrl}}/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/users/{{userId}}",
+            "description": "Catatan: jalankan request Accounts sebelum ini bila ingin akun mereferensikan user yang masih ada."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "item": [
+        {
+          "name": "Create account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const data = pm.response.json().data;",
+                  "pm.collectionVariables.set('accountId', data.accountId);",
+                  "pm.test('password not returned', () => pm.expect(data.password).to.be.undefined);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userName\": \"alice\",\n  \"password\": \"alicepass\",\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/accounts",
+            "description": "userId harus mereferensikan user yang sudah ada (buat user dulu)."
+          }
+        },
+        {
+          "name": "List accounts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/accounts?page=1&limit=10",
+            "description": "Query opsional: userName, userId, accountId, inactiveDays, sort, order, page, limit."
+          }
+        },
+        {
+          "name": "Stale accounts (lastLogin older than N days)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/accounts/stale?days=3"
+          }
+        },
+        {
+          "name": "Get account by accountId",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/accounts/{{accountId}}"
+          }
+        },
+        {
+          "name": "Update account (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"newalicepass\"\n}"
+            },
+            "url": "{{baseUrl}}/accounts/{{accountId}}"
+          }
+        },
+        {
+          "name": "Delete account",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/accounts/{{accountId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Session end",
+      "item": [
+        {
+          "name": "Logout (clears cookies + revokes refresh)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('loggedOut', () => pm.expect(pm.response.json().data.loggedOut).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/logout",
+            "description": "Jalankan terakhir. Mencabut refresh token dan menghapus kedua cookie."
+          }
+        }
+      ]
+    }
+  ]
+}
