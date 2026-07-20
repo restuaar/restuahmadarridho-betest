@@ -1,10 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import { UnauthorizedException } from '../exceptions/app-exception';
 import { verifyAccessToken, refreshAccessToken } from '../services/token.service';
-import { ACCESS_COOKIE, REFRESH_COOKIE, setAccessCookie } from '../utils/cookies';
+import { REFRESH_COOKIE } from '../utils/cookies';
+
+function bearerToken(req: Request): string | null {
+  const header = req.headers.authorization;
+  return header && header.startsWith('Bearer ') ? header.slice(7) : null;
+}
 
 export async function jwtAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const accessToken = req.cookies?.[ACCESS_COOKIE];
+  const accessToken = bearerToken(req);
 
   if (accessToken) {
     try {
@@ -22,7 +27,7 @@ export async function jwtAuth(req: Request, res: Response, next: NextFunction): 
 
   try {
     const newAccessToken = await refreshAccessToken(refreshToken);
-    setAccessCookie(res, newAccessToken);
+    res.setHeader('x-access-token', newAccessToken);
     (req as any).user = verifyAccessToken(newAccessToken);
     return next();
   } catch {

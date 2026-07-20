@@ -131,30 +131,30 @@ Index:
 
 ## Autentikasi
 
-Login menerbitkan **access token** (masa hidup pendek) dan **refresh token** (masa hidup
-panjang dan bisa dicabut) yang dikirim sebagai **cookie httpOnly** (`access_token`,
-`refresh_token`). Client cukup mengirim request dengan credentials, cookie ikut otomatis.
+Login menerbitkan **access token** (masa hidup pendek, dikembalikan di body lalu dikirim
+lewat header `Authorization: Bearer`) dan **refresh token** (masa hidup panjang dan bisa
+dicabut, disimpan sebagai **cookie httpOnly**).
 
-1. Login (cookie disimpan ke jar):
+1. Login (cookie refresh disimpan ke jar, ambil accessToken dari body):
 
 ```bash
 curl -c jar.txt -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"userName":"admin","password":"admin123"}'
-# hasil: { "success": true, "data": { "loggedIn": true } } beserta Set-Cookie
+# hasil: { "success": true, "data": { "accessToken": "<jwt>" } } beserta Set-Cookie refresh_token
 ```
 
-2. Panggil endpoint terproteksi, cookie terkirim otomatis:
+2. Panggil endpoint terproteksi dengan header Bearer (cookie refresh ikut dari jar):
 
 ```bash
-curl -b jar.txt http://localhost:3000/api/users
+curl -b jar.txt -H "Authorization: Bearer <accessToken>" http://localhost:3000/api/users
 ```
 
-3. Auto-refresh: saat `access_token` kedaluwarsa, cookie `refresh_token` dipakai
-   otomatis. Request tetap berhasil dan cookie `access_token` baru dikembalikan lewat
-   `Set-Cookie`.
+3. Auto-refresh: saat access token kedaluwarsa, cookie `refresh_token` dipakai otomatis.
+   Request tetap berhasil dan access token baru dikembalikan lewat header response
+   `x-access-token`.
 
-4. Logout mencabut refresh token dan menghapus kedua cookie: `POST /api/auth/logout`.
+4. Logout mencabut refresh token dan menghapus cookie: `POST /api/auth/logout`.
 
 Semua route selain `/api/auth/*` dan `GET /api/health` divalidasi pada tiap request.
 Detail lengkap ada di [docs/api-contract.md](docs/api-contract.md).
@@ -174,8 +174,8 @@ Kontrak lengkap beserta contoh request/response: [docs/api-contract.md](docs/api
 ### Auth & Health
 | Method | Path | Auth | Keterangan |
 |---|---|---|---|
-| POST | `/api/auth/login` | publik | Body `{ userName, password }`, set cookie `access_token` + `refresh_token`, update `lastLoginDateTime` |
-| POST | `/api/auth/refresh` | cookie refresh | Set ulang cookie `access_token` |
+| POST | `/api/auth/login` | publik | Body `{ userName, password }` -> `{ accessToken }`, set cookie `refresh_token`, update `lastLoginDateTime` |
+| POST | `/api/auth/refresh` | cookie refresh | -> `{ accessToken }` baru |
 | POST | `/api/auth/logout` | cookie refresh | Cabut refresh token + hapus cookie |
 | GET | `/api/health` | publik | `{ status, mongo, redis }` |
 

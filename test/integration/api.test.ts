@@ -1,4 +1,3 @@
-// Hermetic Redis double so cache + refresh-token storage run without a server.
 jest.mock('../../src/db/redis', () => {
   const store = new Map<string, string>();
   const client = {
@@ -28,7 +27,6 @@ let mongod: MongoMemoryServer;
 let access = '';
 let refresh = '';
 
-// Reads name=value pairs out of a response's Set-Cookie header.
 function cookiesFrom(res: request.Response): Record<string, string> {
   const jar: Record<string, string> = {};
   for (const c of (res.headers['set-cookie'] ?? []) as unknown as string[]) {
@@ -39,8 +37,8 @@ function cookiesFrom(res: request.Response): Record<string, string> {
   return jar;
 }
 
-const cookie = (...parts: string[]) => ({ Cookie: parts.join('; ') });
-const authCookie = () => cookie(`access_token=${access}`);
+const bearer = () => ({ Authorization: `Bearer ${access}` });
+const refreshCookie = () => ({ Cookie: `refresh_token=${refresh}` });
 
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create();
@@ -66,15 +64,14 @@ describe('API integration (HTTP)', () => {
   let userId = '';
   let accountId = '';
 
-  it('POST /api/auth/login sets access + refresh cookies', async () => {
+  it('POST /api/auth/login returns accessToken in body and sets refresh cookie', async () => {
     const res = await request(app).post('/api/auth/login').send({ userName: 'admin', password: 'admin123' });
     expect(res.status).toBe(200);
-    expect(res.body.data.loggedIn).toBe(true);
-    const jar = cookiesFrom(res);
-    access = jar.access_token;
-    refresh = jar.refresh_token;
+    access = res.body.data.accessToken;
+    refresh = cookiesFrom(res).refresh_token;
     expect(access).toBeTruthy();
     expect(refresh).toBeTruthy();
+    expect(res.body.data.refreshToken).toBeUndefined();
   });
 
   it('login with wrong password → 401', async () => {
@@ -88,12 +85,12 @@ describe('API integration (HTTP)', () => {
     expect(res.body.data.redis).toBe('up');
   });
 
-  it('protected route without any cookie → 401', async () => {
+  it('protected route without a token → 401', async () => {
     expect((await request(app).get('/api/users')).status).toBe(401);
   });
 
   it('POST /api/users creates a user with a UUIDv7 id', async () => {
-    const res = await request(app).post('/api/users').set(authCookie()).send({
+    const res = await request(app).post('/api/users').set(bearer()).send({
       fullName: 'Alice', accountNumber: 'A100', emailAddress: 'alice@example.com',
       registrationNumber: 'R100', role: 'user',
     });
@@ -103,85 +100,83 @@ describe('API integration (HTTP)', () => {
   });
 
   it('duplicate accountNumber → 409; invalid email → 400', async () => {
-    expect((await request(app).post('/api/users').set(authCookie()).send({
+    expect((await request(app).post('/api/users').set(bearer()).send({
       fullName: 'Dup', accountNumber: 'A100', emailAddress: 'dup@example.com', registrationNumber: 'R999', role: 'user',
     })).status).toBe(409);
-    expect((await request(app).post('/api/users').set(authCookie()).send({
+    expect((await request(app).post('/api/users').set(bearer()).send({
       fullName: 'Bad', accountNumber: 'A2', emailAddress: 'nope', registrationNumber: 'R2', role: 'user',
     })).status).toBe(400);
   });
 
   it('list (cached 2nd call) + reads by accountNumber/registrationNumber', async () => {
-    const first = await request(app).get('/api/users?role=user&sort=fullName&order=asc&page=1&limit=10').set(authCookie());
+    const first = await request(app).get('/api/users?role=user&sort=fullName&order=asc&page=1&limit=10').set(bearer());
     expect(first.body.meta.total).toBe(1);
-    await request(app).get('/api/users?role=user&sort=fullName&order=asc&page=1&limit=10').set(authCookie());
-    expect((await request(app).get('/api/users?accountNumber=A100').set(authCookie())).body.data[0].userId).toBe(userId);
-    expect((await request(app).get('/api/users?accountNumber=A100').set(authCookie())).body.data[0].userId).toBe(userId);
-    expect((await request(app).get('/api/users?registrationNumber=R100').set(authCookie())).body.data[0].accountNumber).toBe('A100');
+    await request(app).get('/api/users?role=user&sort=fullName&order=asc&page=1&limit=10').set(bearer());
+    expect((await request(app).get('/api/users?accountNumber=A100').set(bearer())).body.data[0].userId).toBe(userId);
+    expect((await request(app).get('/api/users?accountNumber=A100').set(bearer())).body.data[0].userId).toBe(userId);
+    expect((await request(app).get('/api/users?registrationNumber=R100').set(bearer())).body.data[0].accountNumber).toBe('A100');
   });
 
   it('detail (cached) + 404; PATCH partial + 404', async () => {
-    expect((await request(app).get(`/api/users/${userId}`).set(authCookie())).body.data.role).toBe('user');
-    expect((await request(app).get(`/api/users/${userId}`).set(authCookie())).body.data.userId).toBe(userId);
-    expect((await request(app).get('/api/users/nope').set(authCookie())).status).toBe(404);
-    expect((await request(app).patch(`/api/users/${userId}`).set(authCookie()).send({ fullName: 'Alice B' })).body.data.fullName).toBe('Alice B');
-    expect((await request(app).patch('/api/users/nope').set(authCookie()).send({ fullName: 'X' })).status).toBe(404);
+    expect((await request(app).get(`/api/users/${userId}`).set(bearer())).body.data.role).toBe('user');
+    expect((await request(app).get(`/api/users/${userId}`).set(bearer())).body.data.userId).toBe(userId);
+    expect((await request(app).get('/api/users/nope').set(bearer())).status).toBe(404);
+    expect((await request(app).patch(`/api/users/${userId}`).set(bearer()).send({ fullName: 'Alice B' })).body.data.fullName).toBe('Alice B');
+    expect((await request(app).patch('/api/users/nope').set(bearer()).send({ fullName: 'X' })).status).toBe(404);
   });
 
   it('accounts: create (password hidden) + duplicate 409 + list + detail + 404', async () => {
-    const created = await request(app).post('/api/accounts').set(authCookie()).send({ userName: 'alice', password: 'alicepass', userId });
+    const created = await request(app).post('/api/accounts').set(bearer()).send({ userName: 'alice', password: 'alicepass', userId });
     expect(created.status).toBe(201);
     expect(created.body.data.password).toBeUndefined();
     accountId = created.body.data.accountId;
 
-    expect((await request(app).post('/api/accounts').set(authCookie()).send({ userName: 'alice', password: 'dupsecret', userId })).status).toBe(409);
+    expect((await request(app).post('/api/accounts').set(bearer()).send({ userName: 'alice', password: 'dupsecret', userId })).status).toBe(409);
 
-    const list = await request(app).get('/api/accounts?page=1&limit=10').set(authCookie());
+    const list = await request(app).get('/api/accounts?page=1&limit=10').set(bearer());
     expect(list.body.data.some((a: any) => 'password' in a)).toBe(false);
-    await request(app).get('/api/accounts?page=1&limit=10').set(authCookie());
-    expect((await request(app).get(`/api/accounts/${accountId}`).set(authCookie())).body.data.userName).toBe('alice');
-    expect((await request(app).get(`/api/accounts/${accountId}`).set(authCookie())).body.data.accountId).toBe(accountId);
-    expect((await request(app).get('/api/accounts/nope').set(authCookie())).status).toBe(404);
+    await request(app).get('/api/accounts?page=1&limit=10').set(bearer());
+    expect((await request(app).get(`/api/accounts/${accountId}`).set(bearer())).body.data.userName).toBe('alice');
+    expect((await request(app).get(`/api/accounts/${accountId}`).set(bearer())).body.data.accountId).toBe(accountId);
+    expect((await request(app).get('/api/accounts/nope').set(bearer())).status).toBe(404);
   });
 
   it('stale + inactiveDays filters', async () => {
-    expect((await request(app).get('/api/accounts/stale?days=3').set(authCookie())).body.data.length).toBe(0);
-    expect((await request(app).get('/api/accounts?inactiveDays=0').set(authCookie())).body.meta.total).toBe(1);
+    expect((await request(app).get('/api/accounts/stale?days=3').set(bearer())).body.data.length).toBe(0);
+    expect((await request(app).get('/api/accounts?inactiveDays=0').set(bearer())).body.meta.total).toBe(1);
   });
 
-  // ── Refresh-token flow (cookies) ───────────────────────────────────────────
-  it('auto-refresh: invalid access + valid refresh → 200 and re-sets access cookie', async () => {
-    const res = await request(app).get('/api/users').set(cookie('access_token=garbage', `refresh_token=${refresh}`));
+  // ── Refresh flow: access in header, refresh in cookie ──────────────────────
+  it('auto-refresh: invalid access header + valid refresh cookie → 200 with x-access-token', async () => {
+    const res = await request(app).get('/api/users').set({ Authorization: 'Bearer garbage', ...refreshCookie() });
     expect(res.status).toBe(200);
-    const set = (res.headers['set-cookie'] ?? []) as unknown as string[];
-    expect(set.some((c) => c.startsWith('access_token='))).toBe(true);
+    expect(res.headers['x-access-token']).toBeDefined();
   });
 
-  it('auto-refresh: no access + valid refresh → 200', async () => {
-    expect((await request(app).get('/api/users').set(cookie(`refresh_token=${refresh}`))).status).toBe(200);
+  it('auto-refresh: no access header + valid refresh cookie → 200', async () => {
+    expect((await request(app).get('/api/users').set(refreshCookie())).status).toBe(200);
   });
 
   it('invalid access + invalid refresh → 401', async () => {
-    expect((await request(app).get('/api/users').set(cookie('access_token=garbage', 'refresh_token=garbage'))).status).toBe(401);
+    expect((await request(app).get('/api/users').set({ Authorization: 'Bearer garbage', Cookie: 'refresh_token=garbage' })).status).toBe(401);
   });
 
-  it('POST /api/auth/refresh sets a new access cookie', async () => {
-    const res = await request(app).post('/api/auth/refresh').set(cookie(`refresh_token=${refresh}`));
+  it('POST /api/auth/refresh returns a new access token from the refresh cookie', async () => {
+    const res = await request(app).post('/api/auth/refresh').set(refreshCookie());
     expect(res.status).toBe(200);
-    expect(res.body.data.refreshed).toBe(true);
-    expect(cookiesFrom(res).access_token).toBeTruthy();
+    expect(typeof res.body.data.accessToken).toBe('string');
   });
 
-  it('POST /api/auth/logout revokes the refresh token', async () => {
-    expect((await request(app).post('/api/auth/logout').set(cookie(`refresh_token=${refresh}`))).body.data.loggedOut).toBe(true);
-    expect((await request(app).post('/api/auth/refresh').set(cookie(`refresh_token=${refresh}`))).status).toBe(401);
-    expect((await request(app).get('/api/users').set(cookie(`refresh_token=${refresh}`))).status).toBe(401);
+  it('POST /api/auth/logout revokes the refresh token and clears the cookie', async () => {
+    expect((await request(app).post('/api/auth/logout').set(refreshCookie())).body.data.loggedOut).toBe(true);
+    expect((await request(app).post('/api/auth/refresh').set(refreshCookie())).status).toBe(401);
+    expect((await request(app).get('/api/users').set(refreshCookie())).status).toBe(401);
   });
 
   it('DELETE account + user (then 404)', async () => {
-    expect((await request(app).delete(`/api/accounts/${accountId}`).set(authCookie())).body.data.deleted).toBe(true);
-    expect((await request(app).delete('/api/accounts/nope').set(authCookie())).status).toBe(404);
-    expect((await request(app).delete(`/api/users/${userId}`).set(authCookie())).body.data.deleted).toBe(true);
-    expect((await request(app).delete('/api/users/nope').set(authCookie())).status).toBe(404);
+    expect((await request(app).delete(`/api/accounts/${accountId}`).set(bearer())).body.data.deleted).toBe(true);
+    expect((await request(app).delete('/api/accounts/nope').set(bearer())).status).toBe(404);
+    expect((await request(app).delete(`/api/users/${userId}`).set(bearer())).body.data.deleted).toBe(true);
+    expect((await request(app).delete('/api/users/nope').set(bearer())).status).toBe(404);
   });
 });

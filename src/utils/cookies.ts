@@ -1,6 +1,5 @@
 import { Response, CookieOptions } from 'express';
 
-export const ACCESS_COOKIE = 'access_token';
 export const REFRESH_COOKIE = 'refresh_token';
 
 function refreshTtlMs(): number {
@@ -16,17 +15,10 @@ function baseOptions(): CookieOptions {
   };
 }
 
-export function setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
-  const options = { ...baseOptions(), maxAge: refreshTtlMs() };
-  res.cookie(ACCESS_COOKIE, accessToken, options);
-  res.cookie(REFRESH_COOKIE, refreshToken, options);
+export function setRefreshCookie(res: Response, refreshToken: string): void {
+  res.cookie(REFRESH_COOKIE, refreshToken, { ...baseOptions(), maxAge: refreshTtlMs() });
 }
 
-export function setAccessCookie(res: Response, accessToken: string): void {
-  res.cookie(ACCESS_COOKIE, accessToken, { ...baseOptions(), maxAge: refreshTtlMs() });
-}
-
-export function clearAuthCookies(res: Response): void {
-  res.clearCookie(ACCESS_COOKIE, baseOptions());
+export function clearRefreshCookie(res: Response): void {
   res.clearCookie(REFRESH_COOKIE, baseOptions());
 }

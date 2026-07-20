@@ -20,34 +20,32 @@ Pemetaan kode error ke HTTP: `BAD_REQUEST`/`VALIDATION_ERROR` 400, `UNAUTHORIZED
 
 ## Autentikasi
 
-Login menerbitkan dua token yang dikirim sebagai **cookie httpOnly** (client tidak
-pernah menangani token di JavaScript, browser atau app mengirimnya otomatis):
+Login menerbitkan dua token dengan cara penyimpanan berbeda:
 
-- Cookie **`access_token`**: masa hidup pendek (default 15m).
-- Cookie **`refresh_token`**: masa hidup panjang (default 7 hari), bisa dicabut.
+- **`accessToken`**: masa hidup pendek (default 15m). Dikembalikan di **body** response
+  login, lalu dikirim tiap request lewat header **`Authorization: Bearer <accessToken>`**.
+- **`refresh_token`**: masa hidup panjang (default 7 hari), bisa dicabut. Disimpan
+  sebagai **cookie httpOnly** (`HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` di
+  produksi), dikirim otomatis oleh browser/app.
 
-Kedua cookie bersifat `HttpOnly`, `SameSite=Lax`, `Path=/`, dan `Secure` di produksi.
-Kirim request dengan credentials agar cookie ikut terlampir (misal `fetch(url, {
-credentials: 'include' })`, atau memakai cookie jar).
+### Header request (endpoint terproteksi)
+
+| Sumber | Wajib | Keterangan |
+|---|---|---|
+| `Authorization: Bearer <accessToken>` | ya | Kredensial utama, divalidasi tiap request |
+| cookie `refresh_token` | opsional | Dipakai untuk auto-refresh saat access token gagal |
 
 ### Auto-refresh
 
-Untuk setiap endpoint terproteksi, server memvalidasi cookie `access_token` lebih dulu.
-Jika hilang, kedaluwarsa, atau tidak valid, server memakai cookie `refresh_token`:
+Server memvalidasi header `Authorization: Bearer` lebih dulu. Jika hilang, kedaluwarsa,
+atau tidak valid, server memakai cookie `refresh_token`:
 
-- refresh valid: access token baru diterbitkan, di-set ulang sebagai cookie
-  `access_token` (lewat `Set-Cookie`), dan request tetap berjalan normal (Anda tetap
-  mendapat response asli).
+- refresh valid: access token baru diterbitkan, dikembalikan lewat header response
+  **`x-access-token`**, dan request tetap berjalan normal (client sebaiknya menyimpan
+  access token baru itu).
 - refresh hilang/tidak valid/dicabut: `401 { code: "UNAUTHORIZED", message: "Not authenticated" }`.
 
-### Cookie
-
-| Cookie | Di-set oleh | Keterangan |
-|---|---|---|
-| `access_token` | login, refresh, auto-refresh | Kredensial utama |
-| `refresh_token` | login | Dipakai untuk auto-refresh, refresh, dan logout |
-
-Logout menghapus kedua cookie dan mencabut refresh token di sisi server.
+Logout mencabut refresh token di sisi server dan menghapus cookie `refresh_token`.
 
 ## Endpoint
 
@@ -58,21 +56,21 @@ Request:
 ```json
 { "userName": "admin", "password": "admin123" }
 ```
-Response `200`, menyetel cookie `access_token` + `refresh_token`:
+Response `200`, mengembalikan `accessToken` di body dan menyetel cookie `refresh_token`:
 ```json
-{ "success": true, "data": { "loggedIn": true } }
+{ "success": true, "data": { "accessToken": "<jwt>" } }
 ```
 `401` jika kredensial salah. Efek samping: memperbarui `lastLoginDateTime` akun.
 
 #### POST `/api/auth/refresh`
-Mengirim cookie `refresh_token`. Menyetel ulang cookie `access_token`. Response `200`:
+Mengirim cookie `refresh_token`. Response `200`:
 ```json
-{ "success": true, "data": { "refreshed": true } }
+{ "success": true, "data": { "accessToken": "<jwt>" } }
 ```
 `401` jika refresh token tidak valid atau sudah dicabut.
 
 #### POST `/api/auth/logout`
-Mengirim cookie `refresh_token`. Mencabutnya dan menghapus kedua cookie. Response `200`:
+Mengirim cookie `refresh_token`. Mencabutnya dan menghapus cookie. Response `200`:
 ```json
 { "success": true, "data": { "loggedOut": true } }
 ```
@@ -152,18 +150,19 @@ jika ada. Response `200` berisi akun terbaru. `404` jika tidak ditemukan.
 #### DELETE `/api/accounts/:accountId`
 Response `200` berisi `{ "deleted": true }`. `404` jika tidak ditemukan.
 
-## Contoh alur (cookie jar)
+## Contoh alur
 
 ```bash
-# 1. Login, cookie disimpan ke jar
+# 1. Login: simpan cookie refresh ke jar, ambil accessToken dari body
 curl -c jar.txt -X POST /api/auth/login -H 'Content-Type: application/json' \
   -d '{"userName":"admin","password":"admin123"}'
+# -> { "data": { "accessToken": "<jwt>" } }
 
-# 2. Panggil endpoint terproteksi, cookie dikirim dari jar
-curl -b jar.txt /api/users
+# 2. Panggil endpoint terproteksi: header Bearer + cookie refresh dari jar
+curl -b jar.txt -H "Authorization: Bearer <accessToken>" /api/users
 
-# 3. Saat access token kedaluwarsa, cookie refresh_token dipakai otomatis.
-#    Response tetap normal dan cookie access_token baru dikembalikan lewat Set-Cookie.
+# 3. Saat access token kedaluwarsa, cookie refresh_token dipakai otomatis;
+#    access token baru dikembalikan lewat header response x-access-token.
 
 # 4. Logout (mencabut refresh token + menghapus cookie)
 curl -b jar.txt -X POST /api/auth/logout
