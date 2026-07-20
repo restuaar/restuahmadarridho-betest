@@ -1,0 +1,32 @@
+services:
+  - type: keyvalue
+    name: redis-restuahmadarridho-betest
+    plan: free
+    ipAllowList: []
+
+  - type: web
+    name: ms-restuahmadarridho-betest
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: redis-restuahmadarridho-betest
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_TTL
+        value: "604800"
+      - key: CACHE_TTL
+        value: "300"
