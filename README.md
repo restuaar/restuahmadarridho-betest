@@ -4,6 +4,8 @@ Microservice manajemen user: operasi CRUD untuk **User Info** dan **Account Logi
 yang diproteksi autentikasi, dengan penyimpanan **MongoDB** dan lapisan cache **Redis**
 (strategi cache-aside).
 
+**Live:** https://restuahmadarridho-betest.onrender.com (health: `/api/health`). Akun awal: `admin` / `admin123`.
+
 Dibangun dengan **Node.js + Express + TypeScript**. Arsitektur berlapis (Routes,
 Controller, Service, Repository, Model) ditulis sebagai fungsi biasa per modul, dengan
 satu global exception filter, serta unit test dan integration test (Jest).
@@ -238,7 +240,7 @@ Coverage dipaksa minimal **95% statement/function/line dan 90% branch** (saat in
    (`JWT_EXPIRES_IN`, `JWT_REFRESH_TTL`, `CACHE_TTL` opsional).
 5. Deploy dan verifikasi `GET /<url-render>/api/health`.
 
-URL live: _diisi setelah deploy_.
+URL live: https://restuahmadarridho-betest.onrender.com
 
 ## Struktur Proyek
 
