@@ -60,7 +60,7 @@ export async function revokeRefreshToken(token: string): Promise<void> {
     const payload = jwt.verify(token, refreshSecret()) as RefreshPayload;
     await cache.del(refreshKey(payload.jti));
   } catch {
-    void 0;
+    return;
   }
 }
 

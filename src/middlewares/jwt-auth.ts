@@ -16,10 +16,14 @@ export async function jwtAuth(req: Request, res: Response, next: NextFunction): 
       (req as any).user = verifyAccessToken(accessToken);
       return next();
     } catch {
-      void 0;
+      return refreshFromCookie(req, res, next);
     }
   }
 
+  return refreshFromCookie(req, res, next);
+}
+
+async function refreshFromCookie(req: Request, res: Response, next: NextFunction): Promise<void> {
   const refreshToken = req.cookies?.[REFRESH_COOKIE];
   if (!refreshToken) {
     return next(new UnauthorizedException('Not authenticated'));
